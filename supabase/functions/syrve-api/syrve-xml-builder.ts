@@ -13,6 +13,14 @@ export interface SyrveInvoiceData {
   }>;
 }
 
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function buildSyrveInvoiceXml(data: SyrveInvoiceData): string {
   const [year, month, day] = data.doc_date.split("-");
   const formattedDate = `${day}.${month}.${year}`;
@@ -22,7 +30,7 @@ export function buildSyrveInvoiceXml(data: SyrveInvoiceData): string {
       (item, index) =>
         `<incomingInvoiceItemDto>` +
         `<num>${index + 1}</num>` +
-        `<productId>${item.syrve_guid}</productId>` +
+        `<productId>${xmlEscape(item.syrve_guid)}</productId>` +
         `<amount>${item.quantity}</amount>` +
         `<price>${item.price}</price>` +
         `<vatPercent>${item.vat}</vatPercent>` +
@@ -34,10 +42,10 @@ export function buildSyrveInvoiceXml(data: SyrveInvoiceData): string {
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<incomingInvoiceDto>` +
     `<id></id>` +
-    `<number>${data.doc_number}</number>` +
+    `<number>${xmlEscape(data.doc_number)}</number>` +
     `<dateIncoming>${formattedDate}</dateIncoming>` +
-    `<supplier>${data.supplier_guid}</supplier>` +
-    `<defaultStore>${data.store_guid}</defaultStore>` +
+    `<supplier>${xmlEscape(data.supplier_guid)}</supplier>` +
+    `<defaultStore>${xmlEscape(data.store_guid)}</defaultStore>` +
     `<items>${itemsXml}</items>` +
     `</incomingInvoiceDto>`
   );

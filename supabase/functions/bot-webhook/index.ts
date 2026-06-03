@@ -77,9 +77,13 @@ serve(async (req: Request) => {
 
     const imgRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
     const arrayBuffer = await imgRes.arrayBuffer();
-    const base64Image = btoa(
-      String.fromCharCode(...new Uint8Array(arrayBuffer))
-    );
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    const base64Image = btoa(binary);
 
     // Call GPT-4o with Structured Outputs
     const completion = await openai.chat.completions.create({
@@ -162,7 +166,8 @@ serve(async (req: Request) => {
       total_amount: item.total_amount,
     }));
 
-    await supabase.from("invoice_items_history").insert(rows);
+    const { error: itemsErr } = await supabase.from("invoice_items_history").insert(rows);
+    if (itemsErr) throw itemsErr;
 
     // Send Mini App link
     const miniAppUrl = `${MINI_APP_BASE_URL}/invoice/${invoice.id}`;

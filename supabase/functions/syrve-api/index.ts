@@ -90,6 +90,9 @@ serve(async (req: Request) => {
     // resText is the created document GUID
     const createdSyrveGuid = resText.trim();
 
+    // Logout to release Syrve session
+    await fetch(`${baseUrl}/resto/api/auth/logout?key=${encodeURIComponent(authToken)}`, { method: "GET" });
+
     await supabase
       .from("invoice_history")
       .update({ status: "submitted", syrve_id: createdSyrveGuid, error_message: null })

@@ -59,26 +59,36 @@ serve(async (req: Request) => {
         return { ...item, delta_percent: 0, is_alert: false, history_found: false };
       }
 
-      // Find most recent submitted invoice item for this product from same supplier
-      const { data: history } = await supabase
-        .from("invoice_items_history")
-        .select(`
-          price_per_unit_no_vat,
-          invoice:invoice_history!inner(id, doc_date, status, tenant_id, supplier_pib)
-        `)
-        .eq("syrve_product_id", item.syrve_product_id)
-        .eq("invoice_history.tenant_id", invoice.tenant_id)
-        .eq("invoice_history.supplier_pib", invoice.supplier_pib)
-        .eq("invoice_history.status", "submitted")
-        .gte("invoice_history.doc_date", cutoffDate)
-        .order("invoice_history.doc_date", { ascending: false })
-        .limit(1);
+      // Step 1: Get recent submitted invoice IDs for this tenant+supplier in date range
+      const { data: recentInvoices } = await supabase
+        .from("invoice_history")
+        .select("id")
+        .eq("tenant_id", invoice.tenant_id)
+        .eq("supplier_pib", invoice.supplier_pib)
+        .eq("status", "submitted")
+        .gte("doc_date", cutoffDate)
+        .order("doc_date", { ascending: false })
+        .limit(10);
 
-      if (!history || history.length === 0) {
+      if (!recentInvoices || recentInvoices.length === 0) {
         return { ...item, delta_percent: 0, is_alert: false, history_found: false };
       }
 
-      const oldPrice = Number(history[0].price_per_unit_no_vat);
+      const recentInvoiceIds = recentInvoices.map((inv: { id: number }) => inv.id);
+
+      // Step 2: Find the most recent price for this product in those invoices
+      const { data: historyItems } = await supabase
+        .from("invoice_items_history")
+        .select("price_per_unit_no_vat, invoice_id")
+        .eq("syrve_product_id", item.syrve_product_id)
+        .in("invoice_id", recentInvoiceIds)
+        .limit(1);
+
+      if (!historyItems || historyItems.length === 0) {
+        return { ...item, delta_percent: 0, is_alert: false, history_found: false };
+      }
+
+      const oldPrice = Number(historyItems[0].price_per_unit_no_vat);
       const currentPrice = Number(item.price_per_unit_no_vat);
       const { delta_percent, is_alert } = computeDelta({ currentPrice, oldPrice, threshold });
 

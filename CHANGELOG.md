@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0] — 2026-06-03
+
+### Добавлено
+
+- `auth-telegram` edge function — верификация Telegram `initData` (HMAC-SHA256), выдача Supabase JWT с `app_metadata.tg_id`; токен живёт 1 час
+- `AuthContext` (Mini App) — при старте авторизует пользователя через `auth-telegram`, хранит authenticated Supabase client и `accessToken` в React context
+- RLS миграция `20260603000000_fix_rls_telegram_jwt.sql` — все политики `USING (true)` заменены на фильтрацию по `tg_id` из JWT; добавлен RLS на `ocr_mappings` (ранее отсутствовал)
+
+### Изменено
+
+- `InvoicePage` — все запросы к Supabase через authenticated client из `AuthContext`; заголовки edge function вызовов обновлены на JWT вместо anon key
+- `supabase.ts` — добавлена `createAuthenticatedClient(accessToken)` фабрика
+- `App.tsx` — обёрнут в `AuthProvider` с экранами загрузки/ошибки авторизации
+
+### Безопасность
+
+- Закрыта дыра AUTH-1: до этого Mini App с anon ключом мог читать `invoice_history` любого тенанта зная ID документа
+
 ## [0.1.0] — 2026-06-03
 
 ### Добавлено

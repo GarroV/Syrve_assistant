@@ -23,8 +23,9 @@
     └─ sendMessage → инлайн-кнопка с Mini App URL
     
 [Mini App открывается в Telegram]
-    ├─ SELECT invoice_history + invoice_items_history (anon key)
-    ├─ SELECT syrve_products + syrve_suppliers (anon key)
+    ├─ POST auth-telegram → verifyInitData → Supabase JWT (tg_id)
+    ├─ SELECT invoice_history + invoice_items_history (JWT, RLS изолирует тенанта)
+    ├─ SELECT syrve_products + syrve_suppliers (JWT, RLS изолирует тенанта)
     ├─ POST price-analyzer Edge Function
     │       └─ SELECT invoice_history (tenant+supplier+date range)
     │       └─ SELECT invoice_items_history (by product, by invoices above)
@@ -58,7 +59,9 @@
 
 ### Изоляция тенантов
 
-Edge Functions работают через `service_role` ключ (bypass RLS). Весь контроль доступа — в коде функций, через `tenant_id` из таблицы `users`. RLS включён на таблицах для защиты при прямых запросах через anon ключ (Mini App читает данные только своих инвойсов через URL).
+Edge Functions работают через `service_role` ключ (bypass RLS). Весь контроль доступа — в коде функций, через `tenant_id` из таблицы `users`.
+
+Mini App авторизуется через `auth-telegram` edge function: передаёт Telegram `initData`, получает Supabase JWT с `app_metadata.tg_id`. Все прямые запросы к Supabase идут с этим JWT — RLS фильтрует строки через `(auth.jwt()->'app_metadata'->>'tg_id')::bigint` сопоставляя с `users.tg_id → tenant_id`.
 
 ### Ключевые индексы
 
@@ -67,6 +70,13 @@ Edge Functions работают через `service_role` ключ (bypass RLS).
 - `idx_ocr_mappings_lookup (tenant_id, supplier_pib, ocr_text_raw)` — автолинк при распознавании
 
 ## Edge Functions
+
+### auth-telegram
+
+- **Триггер:** POST из Mini App при старте (один раз за сессию)
+- **Вход:** `{ init_data: string }` — Telegram WebApp initData
+- **Логика:** HMAC-SHA256 верификация подписи (ключ = HMAC("WebAppData", BOT_TOKEN)), проверка `auth_date` (не старше 1ч), создание Supabase JWT с `{ sub: tg_id, role: "authenticated", app_metadata: { tg_id } }` подписанного `SUPABASE_JWT_SECRET`
+- **Выход:** `{ access_token, tg_id }`
 
 ### bot-webhook
 

@@ -36,5 +36,5 @@ export interface Invoice {
   total_amount_ocr: number | null;
   status: "draft" | "submitted" | "error";
   error_message: string | null;
-  items: InvoiceItem[];
+  items?: InvoiceItem[];
 }

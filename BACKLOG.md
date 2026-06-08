@@ -20,12 +20,14 @@ _Нет активных задач_
 
 ---
 
+## Запаркованы
+
+### MINIAPP: Mini App как интерфейс
+Весь UI на инлайн-кнопках Telegram. Mini App добавляется поверх позже как улучшение UX — не как основной интерфейс.
+
+---
+
 ## Следующий приоритет
-
-### AUTH-1: Telegram JWT авторизация для Mini App
-**Долг из 0.1.0.** RLS политики сейчас используют `USING (true)` — изоляция тенантов только на уровне service_role в edge functions. Mini App с anon ключом может читать чужие инвойсы если знает ID.
-
-Решение: верифицировать Telegram WebApp `initData` через edge function, выдавать Supabase JWT с `app_metadata.tg_id`, использовать `(auth.jwt()->'app_metadata'->>'tg_id')::bigint` в RLS.
 
 ### OCR-1: Лимит OCR запросов по тенанту
 Поле `monthly_ocr_limit` в `tenants` заполняется (теперь ограничено диапазоном 0–100, см. миграцию `20260608000000`), но `bot-webhook` его не проверяет. Тенант может делать неограниченное количество GPT-4o Vision запросов.
@@ -67,3 +69,4 @@ _Нет активных задач_
 - [x] InvoicePage (полный flow) — 2026-06-03
 - [x] DEPLOY.md — 2026-06-03
 - [x] Критические баги (XML injection, btoa overflow, silent insert, RLS cast, cross-tenant leak) — 2026-06-03
+- [x] AUTH-1: Telegram JWT авторизация для Mini App (auth-telegram EF, RLS по tg_id) — 2026-06-03

@@ -66,6 +66,30 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ status: "unauthorized" }), { status: 200 });
     }
 
+    // Check monthly OCR limit
+    const { data: tenant } = await supabase
+      .from("tenants")
+      .select("monthly_ocr_limit")
+      .eq("id", user.tenant_id)
+      .single();
+
+    if (tenant) {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { count } = await supabase
+        .from("ai_token_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", user.tenant_id)
+        .gte("created_at", startOfMonth.toISOString());
+
+      if ((count ?? 0) >= tenant.monthly_ocr_limit) {
+        await sendTgMessage(tgUserId, `❌ Достигнут месячный лимит OCR (${tenant.monthly_ocr_limit} запросов). Обратитесь к администратору.`);
+        return new Response(JSON.stringify({ status: "limit_exceeded" }), { status: 200 });
+      }
+    }
+
     await sendTgMessage(tgUserId, "⏳ Документ получен. ИИ анализирует накладную... Подождите.");
 
     // Download photo from Telegram

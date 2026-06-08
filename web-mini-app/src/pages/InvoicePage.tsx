@@ -1,17 +1,17 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import WebApp from "@twa-dev/sdk";
-import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
 import type { Invoice, InvoiceItem, SyrveProduct, SyrveSupplier } from "../types";
 import InvoiceItemRow from "./components/InvoiceItemRow";
 import MappingModal from "./components/MappingModal";
 
 const SYRVE_API_URL = import.meta.env.VITE_SUPABASE_URL + "/functions/v1/syrve-api";
 const PRICE_ANALYZER_URL = import.meta.env.VITE_SUPABASE_URL + "/functions/v1/price-analyzer";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export default function InvoicePage() {
   const { id } = useParams<{ id: string }>();
+  const { client, accessToken } = useAuth();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [products, setProducts] = useState<SyrveProduct[]>([]);
@@ -28,17 +28,16 @@ export default function InvoicePage() {
     WebApp.expand();
   }, []);
 
-  // Load invoice, items, products, suppliers and run price analysis
   useEffect(() => {
-    if (!id) return;
+    if (!id || !client) return;
 
     const load = async () => {
       try {
         const [invRes, itemsRes, productsRes, suppliersRes] = await Promise.all([
-          supabase.from("invoice_history").select("*").eq("id", id).single(),
-          supabase.from("invoice_items_history").select("*").eq("invoice_id", id),
-          supabase.from("syrve_products").select("id, syrve_guid, name, base_unit").eq("is_deleted", false),
-          supabase.from("syrve_suppliers").select("id, syrve_guid, name, pib"),
+          client.from("invoice_history").select("*").eq("id", id).single(),
+          client.from("invoice_items_history").select("*").eq("invoice_id", id),
+          client.from("syrve_products").select("id, syrve_guid, name, base_unit").eq("is_deleted", false),
+          client.from("syrve_suppliers").select("id, syrve_guid, name, pib"),
         ]);
 
         if (invRes.error) throw invRes.error;
@@ -46,27 +45,19 @@ export default function InvoicePage() {
 
         const rawItems: InvoiceItem[] = itemsRes.data ?? [];
 
-        // Run price analysis
         const analysisRes = await fetch(PRICE_ANALYZER_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ invoice_id: Number(id) }),
         });
 
-        if (analysisRes.ok) {
-          const enriched: InvoiceItem[] = await analysisRes.json();
-          setItems(enriched);
-        } else {
-          setItems(rawItems);
-        }
-
+        setItems(analysisRes.ok ? await analysisRes.json() : rawItems);
         setProducts(productsRes.data ?? []);
         setSuppliers(suppliersRes.data ?? []);
 
-        // Pre-select supplier if PIB match found
         if (invRes.data?.supplier_pib) {
           const match = (suppliersRes.data ?? []).find(
             (s: SyrveSupplier) => s.pib === invRes.data.supplier_pib
@@ -81,23 +72,23 @@ export default function InvoicePage() {
     };
 
     load();
-  }, [id]);
+  }, [id, client, accessToken]);
 
   const handleMapProduct = useCallback((itemId: number) => {
     setMappingItemId(itemId);
   }, []);
 
   const handleMappingConfirm = async (itemId: number, productId: number) => {
-    // Update in DB
-    await supabase
+    if (!client) return;
+
+    await client
       .from("invoice_items_history")
       .update({ syrve_product_id: productId })
       .eq("id", itemId);
 
-    // Save to ocr_mappings for future auto-mapping
     const item = items.find((i) => i.id === itemId);
     if (item && invoice) {
-      await supabase.from("ocr_mappings").upsert(
+      await client.from("ocr_mappings").upsert(
         {
           tenant_id: (invoice as any).tenant_id,
           supplier_pib: invoice.supplier_pib,
@@ -115,9 +106,7 @@ export default function InvoicePage() {
   };
 
   const handleQuantityChange = (itemId: number, value: number) => {
-    setItems((prev) =>
-      prev.map((i) => (i.id === itemId ? { ...i, quantity: value } : i))
-    );
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: value } : i)));
   };
 
   const handlePriceChange = (itemId: number, value: number) => {
@@ -146,7 +135,7 @@ export default function InvoicePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           invoice_id: invoice.id,
@@ -178,9 +167,7 @@ export default function InvoicePage() {
   }
 
   if (!invoice) {
-    return (
-      <div className="p-4 text-red-600">Накладная не найдена</div>
-    );
+    return <div className="p-4 text-red-600">Накладная не найдена</div>;
   }
 
   const unmappedCount = items.filter((i) => i.syrve_product_id === null).length;
@@ -189,7 +176,6 @@ export default function InvoicePage() {
 
   return (
     <div className="min-h-screen pb-28" style={{ backgroundColor: "var(--tg-bg)" }}>
-      {/* Header */}
       <div className="px-4 pt-4 pb-2 border-b border-gray-200">
         <h1 className="text-base font-bold truncate">Накладная №{invoice.doc_number}</h1>
         <p className="text-xs text-gray-500">
@@ -198,7 +184,6 @@ export default function InvoicePage() {
         <p className="text-sm font-semibold mt-1">{invoice.total_amount_ocr?.toFixed(2)} RSD</p>
       </div>
 
-      {/* Status banners */}
       {unmappedCount > 0 && (
         <div className="mx-4 mt-3 bg-red-100 border border-red-300 rounded-lg px-3 py-2 text-sm text-red-700">
           ⚠️ {unmappedCount} позиц{unmappedCount === 1 ? "ия" : "ии"} не привязан{unmappedCount === 1 ? "а" : "ы"} к номенклатуре. Привяжите перед отправкой.
@@ -220,7 +205,6 @@ export default function InvoicePage() {
         </div>
       )}
 
-      {/* Supplier selector (shown if PIB not matched) */}
       {!selectedSupplierId && (
         <div className="mx-4 mt-3">
           <label className="text-xs text-gray-500 block mb-1">Поставщик (PIB не распознан)</label>
@@ -239,7 +223,6 @@ export default function InvoicePage() {
         </div>
       )}
 
-      {/* Store selector */}
       <div className="mx-4 mt-3">
         <label className="text-xs text-gray-500 block mb-1">Склад (GUID)</label>
         <input
@@ -251,7 +234,6 @@ export default function InvoicePage() {
         />
       </div>
 
-      {/* Line items */}
       <div className="px-4 mt-4">
         <h2 className="text-sm font-semibold text-gray-600 mb-2">Позиции ({items.length})</h2>
         {items.map((item) => (
@@ -266,7 +248,6 @@ export default function InvoicePage() {
         ))}
       </div>
 
-      {/* Submit button */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200">
         <button
           onClick={handleSubmit}
@@ -283,7 +264,6 @@ export default function InvoicePage() {
         )}
       </div>
 
-      {/* Mapping modal */}
       {mappingItemId !== null && mappingItem && (
         <MappingModal
           itemId={mappingItemId}
